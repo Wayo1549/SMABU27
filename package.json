@@ -1,0 +1,31 @@
+{
+  "name": "dual-screen-photobooth",
+  "version": "1.0.0",
+  "description": "Educational reference implementation of a dual-screen photobooth (Admin Controller + Customer Display) built with Express and Socket.io, heavily commented for teaching purposes.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "start:tunnel": "node start.js",
+    "dev": "nodemon server.js"
+  },
+  "keywords": [
+    "photobooth",
+    "socket.io",
+    "express",
+    "webcam",
+    "dual-screen",
+    "education"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

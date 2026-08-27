@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Your Photobooth Photos</title>
+<style>
+  :root {
+    --ink: #241f33;
+    --accent: #ff8fb3;
+    --accent-2: #b6a6ff;
+    --glass-bg: rgba(255, 255, 255, 0.55);
+    --glass-border: rgba(255, 255, 255, 0.7);
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: linear-gradient(160deg, #ffe3f0 0%, #f2ecff 45%, #e3f0ff 100%);
+    font-family: "Segoe UI", -apple-system, "Helvetica Neue", sans-serif;
+    color: var(--ink);
+    padding: max(22px, env(safe-area-inset-top)) 16px max(30px, env(safe-area-inset-bottom));
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  header {
+    text-align: center;
+    margin-bottom: 20px;
+    max-width: 640px;
+  }
+
+  header h1 { margin: 0; font-size: 21px; line-height: 1.35; font-weight: 800; }
+  header p { margin: 8px 0 0; font-size: 13px; color: #6b6478; }
+
+  /* ================================================================
+     [ปรับลำดับ Mobile: วิดีโอขึ้นก่อน] 3-COLUMN LAYOUT
+     ================================================================
+     สำคัญ: ลำดับที่โจทย์ต้องการบนมือถือ (วิดีโอ -> รูป 3 ใบ -> สตริป)
+     กับลำดับบนจอใหญ่ (วิดีโอ | รูป 3 ใบ | สตริป จากซ้ายไปขวา) คือ
+     ลำดับเดียวกันเป๊ะๆ — ต่างกันแค่ "จัดเรียงเป็นแถวแนวนอน" (desktop)
+     กับ "จัดเรียงเป็นคอลัมน์แนวตั้ง" (mobile) เท่านั้น ดังนั้นแค่เขียน
+     3 section ใน DOM ตามลำดับ วิดีโอ -> รูป -> สตริป ครั้งเดียว แล้ว
+     ให้ flex-wrap จัดการ "row บนจอกว้าง / column บนจอแคบ" เอง ก็ได้
+     ผลลัพธ์ตรงตามสเปกทั้ง 2 กรณีโดยไม่ต้องใช้ CSS `order` เลย */
+  .columns-layout {
+    width: 100%;
+    max-width: 1100px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    align-items: flex-start;
+  }
+
+  .glass-card {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-radius: 22px;
+    box-shadow: 0 20px 50px rgba(80, 50, 120, 0.18);
+    padding: 18px;
+  }
+
+  .col-video, .col-photos, .col-strip {
+    flex: 1 1 300px; /* 3 คอลัมน์เท่าๆ กันบนจอกว้าง */
+  }
+
+  .columns-layout h2 {
+    margin: 0 0 12px;
+    font-size: 14px;
+    text-align: center;
+    color: #6b4f9c;
+    letter-spacing: 0.5px;
+  }
+
+  /* [ปรับลำดับ Mobile: วิดีโอขึ้นก่อน] ล็อกให้แต่ละคอลัมน์กว้างเต็ม
+     แถวเมื่อจอแคบกว่า 860px — เพราะ DOM เรียงเป็น วิดีโอ -> รูป ->
+     สตริป อยู่แล้ว การบังคับ full-width ตรงนี้จึงทำให้มันวางซ้อนกัน
+     เป็นแนวตั้งตามลำดับนั้นโดยอัตโนมัติ ไม่ต้องเขียน order เพิ่ม */
+  @media (max-width: 860px) {
+    .col-video, .col-photos, .col-strip {
+      flex: 1 1 100%;
+    }
+  }
+
+  /* ================================================================
+     COLUMN 1: VIDEO PLAYER
+     ================================================================ */
+  .video-frame {
+    position: relative;
+    aspect-ratio: 4 / 3;
+    background: #17131f;
+    border-radius: 18px;
+    padding: 14px;
+    box-shadow:
+      0 0 0 3px rgba(255,255,255,0.5),
+      inset 0 0 0 2px rgba(0,0,0,0.4),
+      0 20px 40px rgba(0,0,0,0.35);
+  }
+
+  .video-screen {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .video-screen video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .video-generating {
+    color: rgba(255,255,255,0.75);
+    font-size: 12.5px;
+    text-align: center;
+    padding: 0 20px;
+  }
+
+  .video-generating .spinner {
+    width: 30px; height: 30px; margin: 0 auto 10px;
+    border-radius: 50%;
+    border: 3px solid rgba(255,255,255,0.25);
+    border-top-color: #fff;
+    animation: spin 900ms linear infinite;
+  }
+
+  .btn-video, .btn-save-full {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    margin-top: 14px;
+    padding: 15px;
+    border: none;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #241f33, #4b3a73);
+    color: #fff;
+    font-size: 14.5px;
+    font-weight: 800;
+    cursor: pointer;
+    text-decoration: none;
+    box-shadow: 0 10px 24px rgba(36, 31, 51, 0.35);
+    transition: transform 120ms ease;
+  }
+
+  .btn-video:active, .btn-save-full:active { transform: scale(0.97); }
+  .btn-video:disabled { opacity: 0.55; cursor: wait; }
+
+  .video-hint {
+    text-align: center;
+    font-size: 11.5px;
+    color: #837c93;
+    margin: 8px 0 0;
+  }
+
+  /* ================================================================
+     COLUMN 2: 3 INDIVIDUAL PHOTOS, STACKED, EACH WITH OWN BUTTON
+     ================================================================ */
+  .photos-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .asset-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .asset-img-wrap {
+    border-radius: 12px;
+    overflow: hidden;
+    background: #f1ecf9;
+    box-shadow: 0 8px 18px rgba(0,0,0,0.16);
+    aspect-ratio: 4 / 3;
+  }
+
+  .asset-img-wrap img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .btn-save {
+    display: block;
+    text-align: center;
+    padding: 9px 4px;
+    border: none;
+    border-radius: 10px;
+    background: #fff;
+    color: var(--ink);
+    font-size: 11.5px;
+    font-weight: 700;
+    text-decoration: none;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.12);
+    -webkit-user-select: none;
+    user-select: none;
+    transition: transform 120ms ease;
+  }
+
+  .btn-save:active { transform: scale(0.95); }
+
+  /* ================================================================
+     COLUMN 3: THE FINAL TALL STRIP + GLOBAL DOWNLOAD BUTTON AT BOTTOM
+     ================================================================ */
+  .strip-img-wrap {
+    border-radius: 12px;
+    overflow: hidden;
+    background: #f1ecf9;
+    box-shadow: 0 8px 18px rgba(0,0,0,0.16);
+  }
+
+  .strip-img-wrap img {
+    width: 100%;
+    height: auto;
+    object-fit: contain;
+    display: block;
+  }
+
+  @media (max-width: 640px) {
+    header h1 { font-size: 19px; }
+  }
+
+  /* ---------------- STATE SCREENS (loading / error) ---------------- */
+  .state-screen { text-align: center; padding: 60px 20px; }
+
+  .state-screen .spinner {
+    width: 42px; height: 42px; margin: 0 auto 18px;
+    border-radius: 50%;
+    border: 4px solid rgba(182, 166, 255, 0.35);
+    border-top-color: #b6a6ff;
+    animation: spin 900ms linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .state-screen h2 { margin: 0 0 8px; font-size: 17px; }
+  .state-screen p { margin: 0; font-size: 13.5px; color: #6b6478; }
+
+  footer { text-align: center; margin-top: 30px; font-size: 11.5px; color: #9a93a8; }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+  <!-- ================= HEADER ================= -->
+  <header>
+    <h1>✨ Thank You for Visiting Our Photobooth! ✨</h1>
+    <p>Your photos are ready — save them below before this link expires.</p>
+  </header>
+
+  <!-- ================= LOADING STATE ================= -->
+  <div class="state-screen" id="loadingState">
+    <div class="spinner"></div>
+    <h2>Loading your photos…</h2>
+    <p>Just a moment.</p>
+  </div>
+
+  <!-- ================= ERROR STATE ================= -->
+  <div class="state-screen hidden" id="errorState">
+    <h2>🙁 Link expired or not found</h2>
+    <p>This photo link may be too old, or the QR code wasn't scanned
+       correctly. Please ask the photobooth staff for a new one.</p>
+  </div>
+
+  <!-- ================= REAL CONTENT ================= -->
+  <!-- [ปรับลำดับ Mobile: วิดีโอขึ้นก่อน] ลำดับ section ในนี้คือลำดับ
+       จริงที่จะแสดงบนมือถือ (บนลงล่าง) และเป็นลำดับซ้าย-ขวาบนจอกว้าง
+       ด้วยพร้อมกันในตัว — ดูคอมเมนต์ที่ .columns-layout ด้านบน -->
+  <div class="columns-layout hidden" id="content">
+
+    <!-- ============ COLUMN 1: VIDEO PLAYER ============ -->
+    <section class="col-video glass-card">
+      <h2>🎬 Your Slideshow Video</h2>
+
+      <div class="video-frame">
+        <div class="video-screen" id="videoScreen">
+          <div class="video-generating" id="videoGenerating">
+            <div class="spinner"></div>
+            Generating your video…
+          </div>
+          <!-- <video> tag is injected here once recording finishes —
+               see attachGeneratedVideo() below. -->
+        </div>
+      </div>
+
+      <a class="btn-video" id="downloadVideoBtn" style="pointer-events:none; opacity:0.55;">
+        ⏳ Preparing video…
+      </a>
+      <p class="video-hint" id="videoHint">Recording a short looping clip from your 3 photos, right in your browser.</p>
+    </section>
+
+    <!-- ============ COLUMN 2: 3 INDIVIDUAL PHOTOS ============ -->
+    <section class="col-photos glass-card">
+      <h2>🖼️ Your Photos</h2>
+      <div class="photos-stack" id="photosStack">
+        <!-- 3 .asset-card blocks are injected here by JS — see
+             renderPhotosColumn() below. -->
+      </div>
+    </section>
+
+    <!-- ============ COLUMN 3: THE FULL STRIP ============ -->
+    <section class="col-strip glass-card">
+      <h2>🎞️ Full Photobooth Strip</h2>
+      <div class="strip-img-wrap" id="stripImgWrap">
+        <!-- <img> injected here by JS — see renderStripColumn() below. -->
+      </div>
+      <a class="btn-save-full" id="downloadStripBtn" href="#" download>
+        📥 Save Full Strip
+      </a>
+    </section>
+
+  </div>
+
+  <footer>Made with ♥ at our Photobooth</footer>
+
+<!-- Offscreen canvas used only for building the downloadable
+     slideshow video — never shown to the user. -->
+<canvas id="videoCanvas" class="hidden"></canvas>
+
+<script>
+(function () {
+  // ------------------------------------------------------------
+  // STEP 1: READ THE SESSION ID FROM THE URL
+  // ------------------------------------------------------------
+  // The QR code encodes a URL like:
+  //   https://your-server/download.html?session=<uuid>
+  // URLSearchParams parses the query string for us.
+  const params = new URLSearchParams(window.location.search);
+  const sessionId = params.get('session');
+
+  const loadingState = document.getElementById('loadingState');
+  const errorState = document.getElementById('errorState');
+  const content = document.getElementById('content');
+  const videoScreen = document.getElementById('videoScreen');
+  const videoGenerating = document.getElementById('videoGenerating');
+  const downloadVideoBtn = document.getElementById('downloadVideoBtn');
+  const videoHint = document.getElementById('videoHint');
+  const videoCanvas = document.getElementById('videoCanvas');
+  const photosStack = document.getElementById('photosStack');
+  const stripImgWrap = document.getElementById('stripImgWrap');
+  const downloadStripBtn = document.getElementById('downloadStripBtn');
+
+  let photoUrls = []; // the 3 individual shot URLs, filled in once fetched
+
+  function showError() {
+    loadingState.classList.add('hidden');
+    content.classList.add('hidden');
+    errorState.classList.remove('hidden');
+  }
+
+  function showContent() {
+    loadingState.classList.add('hidden');
+    errorState.classList.add('hidden');
+    content.classList.remove('hidden');
+  }
+
+  if (!sessionId) {
+    showError();
+    return;
+  }
+
+  // ------------------------------------------------------------
+  // STEP 2: FETCH THIS SESSION'S IMAGE URLS FROM THE SERVER
+  // ------------------------------------------------------------
+  // GET /api/fetch-session-assets?id=<sessionId> — server.js looks
+  // this id up in its in-memory session store and returns the
+  // strip's URL plus the 3 individual photo URLs, or a 404 JSON
+  // error if the session doesn't exist / has expired. UNCHANGED —
+  // this endpoint doesn't need to know anything about video at all.
+  fetch('/api/fetch-session-assets?id=' + encodeURIComponent(sessionId))
+    .then((res) => {
+      if (!res.ok) throw new Error('not found');
+      return res.json();
+    })
+    .then((data) => {
+      photoUrls = data.photoUrls;
+      renderPhotosColumn(photoUrls);
+      renderStripColumn(data.stripUrl);
+      showContent();
+
+      // [ปรับลำดับ Mobile: วิดีโอขึ้นก่อน] แม้วิดีโอจะอยู่ "คอลัมน์
+      // แรก/บนสุด" ตามลำดับที่โจทย์ต้องการ แต่การ "สร้าง" มันใช้เวลา
+      // นานกว่ารูปนิ่ง (ต้องวาด canvas + บันทึกจริง 2-3 วินาที) จึง
+      // เริ่ม generate มันเป็นงานพื้นหลังทันทีที่รู้ photoUrls โดยไม่
+      // บล็อกการแสดงรูปกับสตริปซึ่งพร้อมเร็วกว่า — ผู้ใช้จะเห็นรูป/
+      // สตริปก่อน แล้ววิดีโอค่อยเด้งเข้ามาแทนที่ spinner ทีหลัง
+      generateAndAttachVideo(photoUrls);
+    })
+    .catch(() => {
+      showError();
+    });
+
+  // ------------------------------------------------------------
+  // COLUMN 2: 3 INDIVIDUAL PHOTOS, EACH WITH ITS OWN SAVE BUTTON
+  // ------------------------------------------------------------
+  function renderPhotosColumn(urls) {
+    photosStack.innerHTML = '';
+    urls.forEach((url, i) => {
+      photosStack.appendChild(
+        buildAssetCard(url, 'photobooth-photo-' + (i + 1) + '.jpg', 'Photo ' + (i + 1))
+      );
+    });
+  }
+
+  function buildAssetCard(url, filename, altText) {
+    const card = document.createElement('div');
+    card.className = 'asset-card';
+
+    const imgWrap = document.createElement('div');
+    imgWrap.className = 'asset-img-wrap';
+    const img = document.createElement('img');
+    img.src = url;
+    img.alt = altText;
+    imgWrap.appendChild(img);
+
+    const saveBtn = document.createElement('a');
+    saveBtn.className = 'btn-save';
+    saveBtn.href = url;
+    saveBtn.download = filename; // same-origin URL, so the browser saves directly
+    saveBtn.textContent = '📥 Save Photo';
+
+    card.appendChild(imgWrap);
+    card.appendChild(saveBtn);
+    return card;
+  }
+
+  // ------------------------------------------------------------
+  // COLUMN 3: THE FULL STRIP + ITS OWN GLOBAL DOWNLOAD BUTTON
+  // ------------------------------------------------------------
+  function renderStripColumn(stripUrl) {
+    stripImgWrap.innerHTML = '';
+    const img = document.createElement('img');
+    img.src = stripUrl;
+    img.alt = 'Full photobooth strip';
+    stripImgWrap.appendChild(img);
+
+    downloadStripBtn.href = stripUrl;
+    downloadStripBtn.setAttribute('download', 'photobooth-strip.jpg');
+  }
+
+  // ------------------------------------------------------------
+  // COLUMN 1: AUTO-GENERATED SLIDESHOW VIDEO (MediaRecorder + <canvas>)
+  // ------------------------------------------------------------
+  // There is no built-in browser API that turns a set of static
+  // images into a video file directly. The approach:
+  //   1. Draw the images onto an offscreen <canvas>, crossfading
+  //      between them with globalAlpha.
+  //   2. Call canvas.captureStream() to get a live MediaStream of
+  //      whatever is being drawn onto that canvas in real time.
+  //   3. Feed that stream into a MediaRecorder, which records it
+  //      into a video Blob as we draw.
+  //   4. Once done, drop the Blob straight into a real <video> tag
+  //      for inline preview/looping, AND wire up the download button.
+  //
+  // [เปลี่ยนส่วนนี้เป็น MP4] เรื่องฟอร์แมตไฟล์:
+  // MediaRecorder ไม่มีทาง "สั่งให้" เข้ารหัสเป็น MP4/H.264 ได้ในทุก
+  // เบราว์เซอร์ — Chrome, Firefox, และ Android WebView ไม่รองรับ
+  // MediaRecorder เอาต์พุตเป็น video/mp4 เลย (รองรับเฉพาะ Safari/iOS
+  // เท่านั้น ตั้งแต่ iOS 14.3+/macOS Big Sur+) ฟังก์ชัน
+  // pickBestVideoFormat() ด้านล่างนี้จึง "ตรวจสอบจริง" ด้วย
+  // MediaRecorder.isTypeSupported() ก่อนว่าเบราว์เซอร์ของผู้ใช้คนนั้น
+  // รองรับ MP4 (H.264/AAC) หรือไม่ — ถ้าใช่ (ส่วนใหญ่คือแขกที่ใช้
+  // iPhone) จะได้ไฟล์ .mp4 เข้ากันได้จริงตามที่ขอ ถ้าเบราว์เซอร์ไม่
+  // รองรับ (Android/Chrome/Firefox) จะ fallback เป็น .webm ที่เล่นได้
+  // จริงบนเครื่องนั้นแทน — ไม่มีการ "ป้ายชื่อไฟล์เป็น .mp4 ทั้งที่
+  // เนื้อไฟล์เป็น WebM" เด็ดขาด เพราะจะทำให้ไฟล์เปิดไม่ได้เลยสำหรับ
+  // แขกที่ใช้ Android ซึ่งเป็นกลุ่มใหญ่ที่สุด
+  function pickBestVideoFormat() {
+    // [เปลี่ยนส่วนนี้เป็น MP4] ลองรูปแบบ MP4/H.264+AAC ที่เข้ากันได้
+    // กว้างที่สุดก่อนเป็นอันดับแรกเสมอ
+    const candidates = [
+      { mimeType: 'video/mp4;codecs=avc1.42E01E,mp4a.40.2', ext: 'mp4', label: 'MP4' },
+      { mimeType: 'video/mp4', ext: 'mp4', label: 'MP4' },
+      { mimeType: 'video/webm;codecs=vp9', ext: 'webm', label: 'WebM' },
+      { mimeType: 'video/webm;codecs=vp8', ext: 'webm', label: 'WebM' },
+      { mimeType: 'video/webm', ext: 'webm', label: 'WebM' }
+    ];
+    for (const c of candidates) {
+      if (MediaRecorder.isTypeSupported(c.mimeType)) return c;
+    }
+    return null; // no supported format at all
+  }
+
+  function loadImage(url) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous'; // same-origin here, but harmless to set
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = url;
+    });
+  }
+
+  async function recordSlideshowVideo(urls, format) {
+    const images = await Promise.all(urls.map(loadImage));
+
+    const W = 640, H = 480; // fixed recording resolution (4:3, matches the capture aspect)
+    videoCanvas.width = W;
+    videoCanvas.height = H;
+    const ctx = videoCanvas.getContext('2d');
+
+    const FPS = 30;
+    const HOLD_MS = 1400;   // how long each photo is fully visible
+    const FADE_MS = 500;    // crossfade duration between photos
+
+    const stream = videoCanvas.captureStream(FPS);
+    const recorder = new MediaRecorder(stream, { mimeType: format.mimeType });
+
+    const chunks = [];
+    recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+
+    const done = new Promise((resolve) => {
+      recorder.onstop = () => resolve(new Blob(chunks, { type: format.mimeType }));
+    });
+
+    recorder.start();
+
+    function drawFrame(img, alpha) {
+      const ratio = Math.max(W / img.width, H / img.height);
+      const w = img.width * ratio, h = img.height * ratio;
+      const x = (W - w) / 2, y = (H - h) / 2;
+
+      ctx.globalAlpha = alpha;
+      ctx.drawImage(img, x, y, w, h);
+      ctx.globalAlpha = 1;
+    }
+
+    function wait(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+    for (let i = 0; i < images.length; i++) {
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, W, H);
+      drawFrame(images[i], 1);
+      await wait(HOLD_MS);
+
+      const next = images[(i + 1) % images.length];
+      const steps = 12;
+      for (let s = 1; s <= steps; s++) {
+        const t = s / steps;
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, W, H);
+        drawFrame(images[i], 1);
+        drawFrame(next, t);
+        await wait(FADE_MS / steps);
+      }
+    }
+
+    recorder.stop();
+    return done;
+  }
+
+  async function generateAndAttachVideo(urls) {
+    if (urls.length === 0) return;
+
+    if (!('MediaRecorder' in window) || !videoCanvas.captureStream) {
+      videoGenerating.textContent = 'Video recording is not supported in this browser.';
+      downloadVideoBtn.textContent = 'Not supported';
+      videoHint.textContent = 'Try opening this link in Chrome or Safari instead.';
+      return;
+    }
+
+    const format = pickBestVideoFormat();
+    if (!format) {
+      videoGenerating.textContent = 'Video recording is not supported in this browser.';
+      downloadVideoBtn.textContent = 'Not supported';
+      return;
+    }
+
+    try {
+      const blob = await recordSlideshowVideo(urls, format);
+      const blobUrl = URL.createObjectURL(blob);
+      const filename = 'photobooth-video.' + format.ext;
+
+      // Swap the "Generating…" spinner for a real, playable <video>.
+      videoGenerating.remove();
+      const videoEl = document.createElement('video');
+      videoEl.src = blobUrl;
+      videoEl.autoplay = true;
+      videoEl.loop = true;
+      videoEl.muted = true;
+      videoEl.playsInline = true;
+      videoEl.controls = true;
+      videoScreen.appendChild(videoEl);
+
+      // Wire up the real download button now that the file exists.
+      downloadVideoBtn.href = blobUrl;
+      downloadVideoBtn.setAttribute('download', filename);
+      downloadVideoBtn.style.pointerEvents = 'auto';
+      downloadVideoBtn.style.opacity = '1';
+      downloadVideoBtn.textContent = '🎬 Download Video (' + format.label + ')';
+
+      // [เปลี่ยนส่วนนี้เป็น MP4] บอกผู้ใช้ตามจริงว่าได้ไฟล์ฟอร์แมต
+      // ไหน แทนที่จะสัญญาว่าเป็น MP4 เสมอทั้งที่บางเบราว์เซอร์ทำไม่ได้
+      videoHint.textContent = format.ext === 'mp4'
+        ? 'Saved as native MP4 — plays everywhere, including iPhone Photos.'
+        : 'Saved as WebM (your browser doesn\'t support MP4 recording) — plays great on this device, Chrome, Firefox, and Android.';
+    } catch (err) {
+      videoGenerating.textContent = 'Could not generate video.';
+      downloadVideoBtn.textContent = 'Failed — tap to retry';
+      videoHint.textContent = err.message;
+    }
+  }
+})();
+</script>
+
+</body>
+</html>

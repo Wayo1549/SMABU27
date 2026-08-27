@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Photobooth System</title>
+
+<!--
+  All visual styling lives in style.css, kept fully separate from
+  markup and logic (separation of concerns: HTML = structure,
+  CSS = presentation, JS = behavior).
+-->
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ================================================================
+     ROLE SWITCHING EXPLAINED
+     ================================================================
+     This single HTML file contains the markup for BOTH the Admin
+     Controller and the Customer Display. We do NOT create two
+     separate .html files. Instead:
+
+       1. Both <div id="adminView"> and <div id="customerView"> exist
+          in the DOM at all times, both starting with the "hidden"
+          CSS class (display:none).
+       2. script.js reads the "role" query parameter from the current
+          page URL (e.g. ?role=admin or ?role=customer) using
+          `new URLSearchParams(window.location.search)`.
+       3. Based on that value, script.js removes the "hidden" class
+          from exactly ONE of the two view containers.
+
+     This keeps everything (structure, dependent IDs, shared assets)
+     in one file while still producing two completely different
+     on-screen experiences depending on how the URL was opened.
+     ================================================================ -->
+
+<!-- ================================================================
+     ADMIN VIEW
+     Purpose: the "backstage" control surface an event staff member
+     uses. It owns the webcam, drives the whole capture flow, and
+     pushes results out to whichever Customer Display is connected.
+     Starts hidden; only shown when ?role=admin is in the URL.
+     ================================================================ -->
+<div id="adminView" class="hidden">
+  <div class="admin-wrap">
+
+    <!-- Header bar: title + two live status indicators (camera
+         on/off, customer display connected/not) so the operator
+         always knows the current system state at a glance. -->
+    <div class="admin-header">
+      <h1>🎛️ Admin Control Dashboard</h1>
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <span class="status-pill"><span class="status-dot" id="camDot"></span>Camera</span>
+        <span class="status-pill"><span class="status-dot" id="linkDot"></span>Customer Display</span>
+      </div>
+    </div>
+
+    <!-- Two-column dashboard grid: left card = camera + controls,
+         right card = the 3 captured slots + session actions. -->
+    <div class="dashboard">
+
+      <!-- ---------------------------------------------------------
+           LEFT CARD: CAMERA VIEWPORT + CONTROL BUTTONS
+           --------------------------------------------------------- -->
+      <div class="card">
+        <h2>Live Capture</h2>
+
+        <!-- CAMERA VIEWPORT
+             This box hosts the live <video> element that
+             getUserMedia() streams into (see script.js). Until the
+             camera is opened, the dark placeholder text ("Camera
+             Off") is shown instead; script.js toggles which of the
+             two is visible. -->
+        <div class="cam-preview" id="camPreview">
+          <!--
+            เดิม: <video id="video" ...>
+            ใหม่: เปลี่ยนชื่อ id เป็น "admin-webcam" ให้ตรงกับสเปคของ
+            ระบบ Zero-Latency Dual-Screen ที่ต้องระบุ id ให้ชัดเจนว่า
+            นี่คือ <video> ตัวจริงที่รับภาพจากกล้อง (getUserMedia)
+            โดยตรง — MediaStream ตัวเดียวกันนี้จะถูกนำไปแปะซ้ำใส่
+            <video id="customer-webcam"> ที่หน้าต่างลูกค้าแบบ 0ms
+            (ดูฟังก์ชัน pushStreamToCustomerWindow ใน script.js)
+          -->
+          <video id="admin-webcam" autoplay playsinline muted></video>
+          <div class="cam-placeholder" id="camPlaceholder">Camera Off</div>
+          <!-- Full-box white flash overlay, briefly flashed via a
+               CSS animation class each time a photo is captured, for
+               a satisfying "camera shutter" visual cue. -->
+          <div class="flash" id="flash"></div>
+        </div>
+
+        <!-- CONTROL BUTTONS: ROW 1
+             "Open Camera" requests webcam permission and starts the
+             stream. "Capture Photo" is disabled until the camera is
+             actually live (script.js flips `disabled` off). -->
+        <div class="btn-row">
+          <button id="openCameraBtn">Open Camera</button>
+          <button id="captureBtn" disabled>Capture Photo</button>
+        </div>
+
+        <!-- CONTROL BUTTON: EXPORT
+             Disabled until all 3 slots are filled; stitches the 3
+             captured photos into one strip image and triggers a
+             browser download (see script.js buildStripAndDownload). -->
+        <button id="exportBtn" class="btn-full" disabled>Export to Frame</button>
+
+        <!-- Live status text the Admin can read without checking the
+             browser console — script.js updates this string at every
+             major step (camera opened, Nth photo captured, etc). -->
+        <p class="help-text" id="adminStatus">Open the camera to begin the session.</p>
+      </div>
+
+      <!-- ---------------------------------------------------------
+           RIGHT CARD: PHOTO SLOTS (ADMIN'S OWN COPY) + SESSION ACTIONS
+           ---------------------------------------------------------
+           These 3 "slot" boxes mirror, on the Admin's own screen,
+           what has been captured so far — separate from (but sent
+           in parallel to) the Customer Display's Polaroid slots. -->
+      <div class="card">
+        <h2>Captured Slots</h2>
+        <div class="slot-list">
+          <!-- Each slot has a numbered badge (1/2/3) and an inner
+               preview box that starts as "Empty" text and gets an
+               <img> injected into it by script.js once that slot is
+               filled. IDs follow the pattern admin-slot-<index>,
+               where index is 0-based (0, 1, 2) to match the array
+               used in script.js. -->
+          <div class="slot" id="admin-slot-0"><div class="slot-number">1</div><div class="slot-preview"><span>Empty</span></div></div>
+          <div class="slot" id="admin-slot-1"><div class="slot-number">2</div><div class="slot-preview"><span>Empty</span></div></div>
+          <div class="slot" id="admin-slot-2"><div class="slot-number">3</div><div class="slot-preview"><span>Empty</span></div></div>
+        </div>
+
+        <hr class="divider">
+
+        <!-- Clears all 3 slots locally AND tells the Customer
+             Display (via the "session-reset" socket event) to clear
+             its Polaroids too — used to prep for the next guest. -->
+        <button id="resetBtn" class="btn-full btn-secondary">↺ Reset Session</button>
+
+        <!-- Opens a brand-new browser window pointed at
+             index.html?role=customer — this is the "second screen"
+             a customer/guest would actually look at (e.g. on a TV or
+             second monitor). window.open() logic lives in script.js. -->
+        <button id="launchCustomerBtn" class="launch-btn">🖥️ Launch Customer Facing Display</button>
+        <p class="help-text">Opens a second window/tab for the customer — view only, no controls.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+  <!-- ================================================================
+       EXPORT / CHECKOUT MODAL
+       ================================================================
+       Hidden by default (opacity:0, pointer-events:none via CSS).
+       script.js shows this the moment "Export to Frame" finishes
+       stitching the strip — replacing the old "auto-download
+       immediately" behavior. Left side shows the finished strip
+       image; right side shows a QR code the customer scans to get
+       their own copy. The QR's <img src> and the strip <img src> are
+       BOTH fully overwritten on every single export (see script.js),
+       so a stale previous session's image or QR can never linger. -->
+  <div class="checkout-modal" id="checkoutModal">
+    <div class="checkout-card">
+
+      <button class="checkout-close-x" id="checkoutCloseX" aria-label="Close">✕</button>
+
+      <div class="checkout-body">
+        <!-- LEFT: the finished strip, rendered instantly from the
+             local canvas data URL — no network round-trip needed to
+             show this half. -->
+        <div class="checkout-preview">
+          <img id="checkoutStripImg" alt="Your finished photobooth strip">
+        </div>
+
+        <!-- RIGHT: QR code pointing at the just-uploaded strip's
+             unique server URL (see server.js POST /api/strip). -->
+        <div class="checkout-qr-panel">
+          <h3>Scan to Download Your Photo</h3>
+          <div class="checkout-qr-box">
+            <img id="checkoutQrImg" alt="QR code to download your photo">
+          </div>
+          <p class="checkout-qr-hint" id="checkoutQrHint">Generating your unique link…</p>
+        </div>
+      </div>
+
+      <!-- [ใหม่] ปุ่ม "บันทึกรูปและวิดีโอลงไดร์ฟ" — ADMIN ONLY
+           ==============================================================
+           อยู่ใน #checkoutModal ของ Admin เท่านั้น (ไม่แตะ
+           #customerCheckoutModal ของ Customer เลยแม้แต่บรรทัดเดียว
+           ตามเงื่อนไข "Customer View pop-up window layout must remain
+           completely untouched") เริ่มต้น disabled ไว้ก่อน — script.js
+           จะเปิดใช้งานก็ต่อเมื่อมี currentSessionId จริงจากเซสชันที่
+           เพิ่ง export สำเร็จเท่านั้น (ดูคอมเมนต์ในนั้นด้วย) -->
+      <button class="checkout-close-btn" id="cloudBackupBtn" disabled>
+        ☁️ บันทึกรูปและวิดีโอลงไดร์ฟ
+      </button>
+      <p class="help-text" id="cloudBackupStatus"></p>
+
+      <!-- Ends the session: clears slots, resets the sequential
+           pointer, re-enables the shutter button, and tells the
+           Customer Display to clear its Polaroids too — see
+           script.js's shared clearAllSlots() helper. -->
+      <button class="checkout-close-btn" id="checkoutStartNewBtn">Start New Session</button>
+    </div>
+  </div>
+
+  </div>
+
+  <!-- ================================================================
+       CUSTOMER CHECKOUT MODAL (mirror of the Admin's #checkoutModal)
+       ================================================================
+       IMPORTANT: this is a SEPARATE element with its OWN unique id
+       (id="customerCheckoutModal") rather than reusing
+       id="checkoutModal" on both — two elements can never validly
+       share one id, and doing so would break
+       document.getElementById() (which only ever returns the FIRST
+       match in the document), silently causing the Admin's and
+       Customer's scripts to collide over the same element. Same
+       classes/visual structure as the Admin's modal, but the "✕"
+       close button and "Start New Session" button are INTENTIONALLY
+       OMITTED — the Customer has no way to dismiss this modal; only
+       the Admin can, via the "admin-dismiss-checkout" socket event
+       (see script.js). -->
+  <div class="checkout-modal" id="customerCheckoutModal">
+    <div class="checkout-card">
+      <div class="checkout-body">
+        <div class="checkout-preview">
+          <img id="customerCheckoutStripImg" alt="Your finished photobooth strip">
+        </div>
+        <div class="checkout-qr-panel">
+          <h3>Scan to Download Your Photo</h3>
+          <div class="checkout-qr-box">
+            <img id="customerCheckoutQrImg" alt="QR code to download your photo">
+          </div>
+          <p class="checkout-qr-hint" id="customerCheckoutQrHint">Generating your unique link…</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<!-- ================================================================
+     CUSTOMER VIEW
+     Purpose: a purely passive, view-only "wow" screen for the guest.
+     No buttons, no settings — it only reacts to Socket.io events sent
+     by the Admin. Starts hidden; only shown when ?role=customer is in
+     the URL (typically opened via the Admin's "Launch" button).
+     ================================================================ -->
+<div id="customerView" class="hidden">
+  <div class="customer-stage">
+
+    <!-- LIVE FEED VIEWPORT (now the TOP section, maximized)
+         ===============================================================
+         [เปลี่ยนแปลงสำคัญ] REFACTOR: ZERO-LATENCY DUAL-SCREEN VIEWPORT
+         ===============================================================
+         เดิม: ที่นี่เป็น <img id="liveFeedImg"> ที่ script.js คอยยัด
+         เฟรมภาพ JPEG (บีบอัด, 480x360, ~8 ครั้ง/วินาที) เข้ามาทาง
+         socket event "sync-camera-state" — วิธีนี้มี "การหน่วงเวลา"
+         (latency) เสมอ เพราะต้อง capture -> compress -> ส่งผ่าน
+         server -> decode ที่ฝั่งนี้ ก่อนจะแสดงผลได้
+
+         ใหม่: เปลี่ยนเป็น <video id="customer-webcam"> ตัวจริง แล้วให้
+         สคริปต์ฝั่ง Admin (บนเครื่องเดียวกัน จอที่ 2) เขียน
+         MediaStream ตัวเดียวกับกล้องเว็บแคมลงใน .srcObject ของ
+         <video> ตัวนี้โดยตรง ผ่าน window reference ข้ามหน้าต่าง
+         (customerWindow.document.getElementById('customer-webcam'))
+         — ไม่มีการบีบอัด ไม่มีการส่งผ่าน server เลย จึงเป็น
+         "0ms delay" ตามที่ต้องการ ใช้ได้เฉพาะกรณีเปิดทั้ง 2
+         หน้าต่างบนเครื่อง/เบราว์เซอร์เดียวกัน (dual-monitor extend
+         mode) เท่านั้น เพราะ MediaStream object ส่งข้ามเครื่อง/
+         ข้าม origin จริงไม่ได้
+
+         attribute "muted" จำเป็นมาก: เบราว์เซอร์สมัยใหม่บล็อก
+         autoplay ของวิดีโอที่มีเสียงโดยอัตโนมัติ แต่จะอนุญาตถ้า
+         muted อยู่ ซึ่งเราไม่ต้องการเสียงอยู่แล้ว (photobooth ไม่มี
+         ไมค์ในระบบ) -->
+    <div class="live-feed-wrap" id="liveFeedWrap">
+      <video id="customer-webcam" class="hidden" autoplay playsinline muted></video>
+      <!-- Shown until the Admin's script successfully attaches the
+           shared MediaStream to the <video> above (see
+           pushStreamToCustomerWindow() in script.js). -->
+      <div class="live-feed-placeholder" id="liveFeedPlaceholder">
+        <div class="pulse-ring"></div>
+        <div>Waiting for Admin to start camera...</div>
+      </div>
+      <div class="live-badge"><span class="dot"></span>LIVE</div>
+    </div>
+
+    <!-- PHOTO STRIP (now the BOTTOM section)
+         3 landscape slots side-by-side. IDs (cust-slot-0/1/2) and
+         the .polaroid-inner target selector are UNCHANGED, so
+         script.js's injectIntoSlot() and session-reset handler in
+         runCustomer() need NO edits for this layout change. -->
+    <div class="frame-panel">
+      <h2>✦ Your Photobooth Strip ✦</h2>
+      <div class="polaroid-stack">
+        <div class="polaroid" id="cust-slot-0">
+          <div class="polaroid-inner"><span>1</span></div>
+          <div class="polaroid-caption">SHOT 01</div>
+        </div>
+        <div class="polaroid" id="cust-slot-1">
+          <div class="polaroid-inner"><span>2</span></div>
+          <div class="polaroid-caption">SHOT 02</div>
+        </div>
+        <div class="polaroid" id="cust-slot-2">
+          <div class="polaroid-inner"><span>3</span></div>
+          <div class="polaroid-caption">SHOT 03</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- FULL-SCREEN "THANK YOU" OVERLAY
+       Hidden (opacity:0, pointer-events:none) until the Admin fires
+       "export-complete" — script.js then drops the finished strip
+       image into #completeImg and adds the "show" class to fade this
+       overlay in, auto-hiding it again a few seconds later. -->
+  <div class="complete-overlay" id="completeOverlay">
+    <img id="completeImg" alt="Final strip">
+    <p>♥ Thank you! ♥</p>
+  </div>
+</div>
+
+<!-- ================================================================
+     FALLBACK VIEW: NO ROLE SPECIFIED
+     Shown only when the URL has neither ?role=admin nor
+     ?role=customer — a friendly landing page instead of a blank
+     screen, letting whoever opened the bare URL pick a role. -->
+<div id="noRoleView" class="hidden">
+  <div class="role-picker">
+    <h1>📸 Photobooth System</h1>
+    <p>Choose how you'd like to open this session:</p>
+    <div class="role-picker-btns">
+      <a href="?role=admin" class="role-btn">🎛️ Admin Dashboard</a>
+      <a href="?role=customer" class="role-btn role-btn-alt">🖥️ Customer Display</a>
+    </div>
+  </div>
+</div>
+
+<!-- ================================================================
+     OFFSCREEN WORKING CANVASES
+     Never shown to the user (class="hidden"). script.js uses these
+     purely as in-memory drawing surfaces:
+       - #hiddenCanvas: grabs a single still frame from the <video>
+         element when "Capture Photo" is clicked, so it can be
+         converted to a PNG data URL.
+       - #stripCanvas: used once, at export time, to draw all 3
+         captured photos plus decorative text onto one tall canvas
+         that becomes the final downloadable strip image.
+     ================================================================ -->
+<canvas id="hiddenCanvas" class="hidden"></canvas>
+<canvas id="stripCanvas" class="hidden"></canvas>
+
+<!--
+  Socket.io client library, auto-served by the Socket.io server at
+  the special path /socket.io/socket.io.js (we never place this file
+  in public/ ourselves — the socket.io npm package on the backend
+  serves it automatically). This exposes the global `io()` function
+  that script.js calls to open a connection.
+-->
+<script src="/socket.io/socket.io.js"></script>
+
+<!-- All of our own frontend logic — see script.js for detailed
+     comments on webcam handling, capture sequencing, and canvas
+     stitching. -->
+<script src="script.js"></script>
+</body>
+</html>

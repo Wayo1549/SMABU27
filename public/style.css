@@ -1,0 +1,804 @@
+/* ====================================================================
+   style.css
+   ====================================================================
+   All visual presentation for the Dual-Screen Photobooth System lives
+   here, kept separate from index.html (structure) and script.js
+   (behavior). Organized into four sections, in the same order the
+   corresponding markup appears in index.html:
+
+     1. Shared / reset styles + buttons
+     2. Role-picker fallback screen
+     3. Admin View (dashboard cards, camera preview, slots)
+     4. Customer View (live feed, Polaroid slots, animations)
+   ==================================================================== */
+
+/* --------------------------------------------------------------------
+   CSS CUSTOM PROPERTIES (VARIABLES)
+   --------------------------------------------------------------------
+   Centralizing the core color palette and shared values here means
+   changing the whole app's theme is a matter of editing a handful of
+   lines instead of hunting through every rule below. --ink is our
+   near-black used for borders/text/shadows throughout, giving the UI
+   a consistent "hand-drawn outline" look. */
+:root {
+  --ink: #1c1b1a;
+  --accent: #ff8fb3;      /* candy pink - used for the Capture button */
+  --accent-2: #b6a6ff;    /* lavender  - used for the Open Camera button */
+  --accent-dark: #ff5c8a; /* deeper pink - used for slot number badges */
+  --panel: #fffdf8;       /* warm off-white - card/panel background */
+  --radius: 18px;         /* shared corner rounding for big cards */
+}
+
+/* Universal box-sizing reset: makes width/height calculations include
+   padding and border, which is far more predictable than the default
+   content-box model when building fixed-width cards and grids. */
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Segoe UI", -apple-system, sans-serif;
+  color: var(--ink);
+}
+
+/* ============================================================
+   SHARED
+   ============================================================
+   .hidden is the single mechanism script.js uses to show/hide
+   entire view containers (#adminView / #customerView / #noRoleView)
+   based on the URL's ?role= parameter. !important guarantees it wins
+   over any more specific display rule defined further down. */
+.hidden { display: none !important; }
+
+/* Base button styling shared by EVERY button in the app (Admin
+   controls, role-picker links styled as buttons, etc). The bold
+   border + solid drop-shadow (no blur) is a lightweight
+   "neo-brutalist" aesthetic: flat colors, thick outlines, hard
+   shadow offsets instead of soft/blurred ones. */
+button {
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 15px;
+  cursor: pointer;
+  border: 3px solid var(--ink);
+  border-radius: 12px;
+  padding: 13px 18px;
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: 4px 4px 0 var(--ink); /* hard-edged shadow, no blur radius */
+  transition: transform 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+}
+
+/* "Pressed" state: on click, the button visually slides into its own
+   shadow (moves by exactly the shadow's offset and the shadow itself
+   collapses to 0), simulating a physical button being pushed down. */
+button:active:not(:disabled) {
+  transform: translate(4px, 4px);
+  box-shadow: 0 0 0 var(--ink);
+}
+
+/* Disabled buttons (e.g. "Capture Photo" before the camera is on)
+   are faded and show a "not-allowed" cursor so it's visually obvious
+   they can't be clicked yet — no separate JS-driven styling needed. */
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ============================================================
+   ROLE PICKER (fallback when no ?role= param is present)
+   ============================================================ */
+#noRoleView {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #fbeeff 0%, #eaf3ff 100%);
+  padding: 24px;
+}
+
+.role-picker {
+  text-align: center;
+  background: var(--panel);
+  border: 3px solid var(--ink);
+  border-radius: var(--radius);
+  box-shadow: 6px 6px 0 var(--ink);
+  padding: 40px 34px;
+  max-width: 420px;
+}
+
+.role-picker h1 { margin: 0 0 8px; font-size: 26px; }
+.role-picker p { margin: 0 0 22px; color: #77737d; }
+
+.role-picker-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* These <a> links are styled to look and feel exactly like <button>
+   elements (same border/shadow/press language) even though they're
+   plain navigation links (?role=admin / ?role=customer). */
+.role-btn {
+  display: block;
+  text-decoration: none;
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--accent-2);
+  border: 3px solid var(--ink);
+  border-radius: 12px;
+  padding: 14px;
+  box-shadow: 4px 4px 0 var(--ink);
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+.role-btn:active { transform: translate(4px, 4px); box-shadow: 0 0 0 var(--ink); }
+.role-btn-alt { background: var(--accent); }
+
+/* ============================================================
+   ADMIN VIEW
+   ============================================================ */
+
+/* Full-viewport soft gradient backdrop, with content centered
+   horizontally via flexbox — gives the dashboard breathing room on
+   large screens without needing a fixed max-width hack on <body>. */
+#adminView {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #fbeeff 0%, #eaf3ff 100%);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 32px 20px;
+}
+
+.admin-wrap {
+  width: 100%;
+  max-width: 1000px; /* caps dashboard width on wide monitors */
+}
+
+.admin-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between; /* title left, status pills right */
+  margin-bottom: 24px;
+  flex-wrap: wrap; /* status pills drop below the title on narrow screens */
+  gap: 12px;
+}
+
+.admin-header h1 {
+  margin: 0;
+  font-size: 24px;
+}
+
+/* Small pill-shaped indicators ("Camera", "Customer Display") each
+   containing a colored dot whose color script.js toggles via the
+   .live / .linked classes below. */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--panel);
+  border: 2px solid var(--ink);
+  border-radius: 999px; /* fully rounded pill shape */
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #d1d1d1; /* neutral gray = "inactive" default state */
+}
+
+/* .live is added by script.js once getUserMedia() succeeds.
+   .linked is added once a "peer-joined" socket event confirms the
+   Customer Display has connected. The glow ring (box-shadow) makes
+   the "on" state pop rather than just flipping a flat color. */
+.status-dot.live { background: #4caf50; box-shadow: 0 0 0 3px rgba(76,175,80,0.25); }
+.status-dot.linked { background: #4c9eff; box-shadow: 0 0 0 3px rgba(76,158,255,0.25); }
+
+/* Two-column CSS Grid: left column (camera+controls) slightly wider
+   than the right column (slots+actions). Collapses to a single
+   column below 760px so the dashboard remains usable on tablets /
+   narrow admin devices. */
+.dashboard {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 20px;
+}
+
+@media (max-width: 760px) {
+  .dashboard { grid-template-columns: 1fr; }
+}
+
+/* Shared "card" look for both dashboard panels — same thick-border,
+   hard-shadow language as the buttons for visual consistency. */
+.card {
+  background: var(--panel);
+  border: 3px solid var(--ink);
+  border-radius: var(--radius);
+  box-shadow: 6px 6px 0 var(--ink);
+  padding: 22px;
+}
+
+.card h2 {
+  margin: 0 0 16px;
+  font-size: 16px;
+  letter-spacing: 0.3px;
+}
+
+/* ---- CAMERA VIEWPORT -------------------------------------------- */
+/* The dark box that hosts the <video> element. aspect-ratio: 4/3
+   keeps the box a consistent shape regardless of the actual camera
+   resolution, avoiding layout jump when the stream starts. */
+.cam-preview {
+  position: relative; /* anchors the absolutely-positioned .flash overlay */
+  width: 100%;
+  aspect-ratio: 4/3;
+  background: #17171c;
+  border: 3px solid var(--ink);
+  border-radius: 14px;
+  overflow: hidden; /* clips the video to the rounded corners */
+  display: flex;
+  align-items: center;
+  justify-content: center; /* centers the placeholder text while video is off */
+  margin-bottom: 16px;
+}
+
+/* ---- MIRRORING EXPLAINED -----------------------------------------
+   transform: scaleX(-1) flips the video horizontally around its
+   own vertical center axis. Raw webcam video is NOT mirrored by
+   default — meaning if you raise your right hand, it appears on the
+   LEFT side of the video (like a security camera). Humans expect a
+   "mirror" experience (raise right hand, see it appear where a real
+   mirror would show it), so we flip the video purely for DISPLAY
+   here with CSS. Note this is a presentation-only flip: the actual
+   pixel data captured by the webcam is untouched by this CSS rule —
+   script.js separately re-applies an equivalent flip on the <canvas>
+   when saving a still photo, specifically so the SAVED image matches
+   what the user was actually looking at on screen. Without that
+   canvas-side mirroring, the live preview and the saved photo would
+   look like un-matching mirror opposites of each other. ------------- */
+.cam-preview video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover; /* fills the box without distorting aspect ratio */
+  transform: scaleX(-1);
+  display: none; /* script.js sets this to 'block' once the stream starts */
+}
+
+.cam-placeholder {
+  color: #7a7a85;
+  font-size: 15px;
+  letter-spacing: 1.5px;
+}
+
+/* Full-box white overlay used as a "camera shutter flash". Sits on
+   top of the video via position:absolute + inset:0 (shorthand for
+   top/right/bottom/left: 0), inheriting position:relative from its
+   .cam-preview parent. */
+.flash {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  opacity: 0; /* invisible by default */
+  pointer-events: none; /* never blocks clicks on the video/buttons under it */
+}
+
+/* script.js toggles this class on/off on every capture; the
+   animation itself fades opacity 0 -> 0.85 -> 0 very quickly,
+   producing a brief camera-flash flicker. Because the class is
+   removed and immediately re-added (with a forced reflow in
+   script.js), the animation can replay on every single click even
+   if clicks happen in quick succession. */
+.flash.active { animation: flashPop 260ms ease-out; }
+@keyframes flashPop { 0% { opacity: .85; } 100% { opacity: 0; } }
+
+/* ---- CONTROL BUTTONS --------------------------------------------- */
+.btn-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.btn-row button { flex: 1; } /* Open Camera / Capture Photo share width equally */
+
+#openCameraBtn { background: var(--accent-2); }
+#captureBtn { background: var(--accent); }
+
+.btn-full {
+  width: 100%;
+  background: var(--ink);
+  color: #fff;
+  padding: 14px;
+}
+
+.btn-secondary {
+  background: var(--panel);
+  color: var(--ink);
+  margin-bottom: 10px;
+}
+
+.launch-btn {
+  width: 100%;
+  background: linear-gradient(135deg, #ff8fb3, #b6a6ff); /* signature two-tone brand gradient */
+  color: #fff;
+  padding: 16px;
+  font-size: 15.5px;
+}
+
+.divider {
+  border: none;
+  border-top: 2px dashed #ddd0ee;
+  margin: 18px 0;
+}
+
+/* ---- PHOTO SLOTS (ADMIN'S OWN PREVIEW LIST) ----------------------- */
+.slot-list { display: flex; flex-direction: column; gap: 12px; }
+
+.slot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 3px solid var(--ink);
+  border-radius: 12px;
+  padding: 8px;
+  min-height: 76px;
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+/* Circular numbered badge (1/2/3) — purely decorative/labeling, no
+   functional role, but crucial for the Admin to see at a glance
+   which physical slot number they're currently filling. */
+.slot-number {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--accent-dark);
+  color: #fff;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--ink);
+  font-size: 13px;
+}
+
+.slot-preview {
+  flex: 1;
+  height: 62px;
+  border-radius: 8px;
+  background: #eee6f7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 2px dashed #c9bce0; /* dashed = "empty" affordance */
+}
+
+.slot-preview img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.slot-preview span { font-size: 11.5px; color: #a89bc2; }
+
+/* Once script.js adds .filled to a .slot (after injecting an <img>),
+   the dashed border becomes a solid one — a subtle but clear visual
+   confirmation that this slot now holds real content. */
+.slot.filled .slot-preview { border-style: solid; border-color: var(--ink); }
+
+.help-text {
+  font-size: 12.5px;
+  color: #8a8a92;
+  text-align: center;
+  margin: 10px 0 0;
+}
+
+/* ============================================================
+   CUSTOMER VIEW
+   ============================================================
+   Deliberately a much moodier, "premium event" aesthetic (dark
+   radial gradient background) versus the light/playful Admin
+   dashboard — this is the screen the actual guest sees, so it's
+   designed to feel like a polished installation rather than a control
+   panel. */
+#customerView {
+  min-height: 100vh;
+  background: radial-gradient(circle at 30% 20%, #2b2140, #0f0c1a 70%);
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: 30px;
+  overflow: hidden;
+}
+
+/* Vertical stack: live camera feed maximized at the TOP, fixed-
+   height photo strip sitting directly underneath at the BOTTOM.
+   align-items:center (on this element, NOT on #customerView above —
+   that one must stay "stretch" or the live-feed-wrap collapse bug
+   from before comes back) horizontally centers both children; each
+   child's own width is controlled individually below. */
+.customer-stage {
+  width: 100%;
+  max-width: 1000px; /* narrower than the old side-by-side 1600px — better proportions for a vertical stack */
+  display: flex;
+  flex-direction: column;   /* CHANGED: row -> column */
+  align-items: center;      /* CHANGED: was "stretch" (row cross-axis); now centers children horizontally */
+  gap: 22px;
+}
+
+/* No responsive breakpoint override needed anymore — column stacking
+   already works correctly at any viewport width, so the old
+   "@media (max-width:900px) { flex-direction: column }" rule (which
+   only existed to collapse the row layout on narrow screens) is
+   removed as redundant. */
+
+/* ---- LIVE FEED VIEWPORT --------------------------------------------
+   FIXED & LOCKED: height:55vh is an explicit, direct value — not
+   derived from flex-grow or parent stretching, so it CANNOT collapse
+   no matter what state #customerView/.customer-stage end up in.
+   flex-shrink:0 is a second safety net: even if space ever gets
+   tight, the flex algorithm is forbidden from shrinking this box
+   below its set height. object-fit:cover on the <img> (unchanged,
+   below) handles cropping so the feed always fills this box cleanly
+   with no distortion. */
+.live-feed-wrap {
+  position: relative; /* anchors the .live-badge and placeholder overlay */
+  height: 55vh;         /* FIXED height, locked to the top half of the viewport */
+  flex-shrink: 0;        /* never allow the flex algorithm to compress this below 55vh */
+  align-self: stretch;   /* still spans the FULL WIDTH of .customer-stage */
+  width: 100%;
+  border-radius: 28px;
+  overflow: hidden;
+  border: 6px solid rgba(255,255,255,0.15);
+  box-shadow: 0 30px 70px rgba(0,0,0,0.55); /* soft, deep shadow = "premium" feel */
+  background: #100c1e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* MIRRORING (Customer side): same reasoning as the Admin's <video>
+   mirroring above, but applied here to an <img> instead of a
+   <video>, since the Customer Display never touches a real camera —
+   it only ever receives already-captured still frames broadcast over
+   Socket.io and displays them as images. Mirroring it in CSS keeps
+   the "live preview" feeling consistent with what the guest expects
+   from a mirror-like photobooth, without needing the Admin to
+   pre-flip every single streamed frame before sending it. */
+.live-feed-wrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+  display: block;
+}
+
+/* Shown until the first "sync-camera-state" frame arrives; centered
+   pulsing ring + text gives the guest visual feedback that the
+   system is alive and about to start, not just frozen/broken. */
+.live-feed-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 14px;
+  color: rgba(255,255,255,0.55);
+  font-size: 20px;
+  letter-spacing: 3px;
+  text-align: center;
+}
+
+/* Expanding-and-fading ring animation — purely decorative "waiting /
+   listening" indicator, looped infinitely. */
+.pulse-ring {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 3px solid rgba(255,143,179,0.6);
+  animation: pulseRing 1.8s ease-out infinite;
+}
+
+@keyframes pulseRing {
+  0% { transform: scale(0.6); opacity: 0.9; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+
+/* Small "LIVE" chip in the corner with a blinking red dot — a common
+   broadcast-TV visual convention that reinforces "this is happening
+   right now". */
+.live-badge {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  background: rgba(0,0,0,0.5);
+  color: #fff;
+  font-size: 12px;
+  letter-spacing: 2px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  backdrop-filter: blur(4px); /* frosted-glass look over the video underneath */
+}
+
+.live-badge .dot {
+  width: 8px;
+  height: 8px;
+  background: #ff4d6d;
+  border-radius: 50%;
+  animation: dotBlink 1.2s infinite;
+}
+
+/* ---- PHOTO LAYOUT SLOTS (BOTTOM SECTION) ------------------------------ */
+/* flex:0 0 auto keeps this panel's natural/compact height (it does
+   NOT compete with .live-feed-wrap for vertical space — only flex:1
+   above does). max-width + align-self:center keep it a comfortably
+   sized, horizontally centered block sitting directly under the live
+   feed, matching the strip's original proportions from your
+   screenshot. */
+.frame-panel {
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: 900px;
+  align-self: center;
+  background: linear-gradient(180deg, #fff6fb, #f2ecff);
+  border-radius: 26px;
+  padding: 20px 22px;
+  box-shadow: 0 30px 70px rgba(0,0,0,0.5);
+}
+
+.frame-panel h2 {
+  text-align: center;
+  margin: 0 0 16px;
+  font-size: 18px;
+  letter-spacing: 1px;
+  color: #6b4f9c;
+}
+
+/* CHANGED: flex-direction row (was column) — the 3 slots now sit
+   side-by-side instead of stacked. flex:1 on each .polaroid (below)
+   makes them share the available width equally. */
+.polaroid-stack {
+  display: flex;
+  flex-direction: row;
+  gap: 22px;
+}
+
+/* Each slot now grows/shrinks equally to fill the row (flex: 1 1 0
+   means: grow, shrink, start from a 0 basis so all 3 end up exactly
+   equal width regardless of their content). min-width:0 is required
+   so a flex child is allowed to shrink narrower than its content's
+   natural width on small screens. */
+.polaroid {
+  flex: 1 1 0;
+  min-width: 0;
+  background: #fff;
+  padding: 10px 10px 26px;
+  border-radius: 6px;
+  box-shadow: 0 12px 24px rgba(0,0,0,0.18);
+  position: relative; /* anchors the absolutely-positioned .polaroid-caption */
+  transform: rotate(var(--rot, 0deg)); /* --rot supplied per-card below */
+  transition: transform 400ms ease;
+}
+
+/* Alternating small rotation angles per slot — unchanged from
+   before, still gives the row a casual, hand-placed feel rather than
+   perfectly machine-aligned rectangles. */
+.polaroid:nth-child(1) { --rot: -1.5deg; }
+.polaroid:nth-child(2) { --rot: 1deg; }
+.polaroid:nth-child(3) { --rot: -0.8deg; }
+
+/* LANDSCAPE TUNING: aspect-ratio changed from 4/3 (portrait-ish
+   square-adjacent) to 16/9, so each slot reads as a clean, wide
+   landscape rectangle that visually matches the new horizontal
+   strip direction instead of looking like 3 narrow portrait cards
+   squeezed into a row. */
+.polaroid-inner {
+  aspect-ratio: 16 / 9;
+  background: #f1ecf9; /* visible only while the slot is still empty */
+  border-radius: 3px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+/* ---- PHOTO SLOT ENTRY ANIMATION ------------------------------------
+   When script.js injects a new <img> into a .polaroid-inner and adds
+   the .pop class to the PARENT .polaroid, this selector matches the
+   <img> INSIDE that now-.pop-classed polaroid and runs the popIn
+   keyframe animation: the photo scales down from 1.15x to 1x while
+   fading from 0 to full opacity, using a slightly "overshooting"
+   cubic-bezier easing curve so it has a little bounce/pop to it
+   rather than a flat linear reveal — reinforcing the instant-camera
+   "shake it and watch it develop" feeling. */
+.polaroid.pop .polaroid-inner img {
+  animation: popIn 550ms cubic-bezier(.2,.9,.3,1.3) forwards;
+}
+
+@keyframes popIn {
+  0% { opacity: 0; transform: scale(1.15); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* ---- FINAL "THANK YOU" OVERLAY -------------------------------------- */
+/* position:fixed + inset:0 covers the entire viewport regardless of
+   scroll position. Starts fully transparent AND non-interactive
+   (pointer-events:none) so it never blocks clicks while hidden —
+   .show flips both of those on with a smooth opacity transition. */
+.complete-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 12, 26, 0.88);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 24px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 450ms ease;
+  z-index: 10; /* sits above the live feed / polaroid panels */
+}
+
+.complete-overlay.show { opacity: 1; pointer-events: auto; }
+
+.complete-overlay img {
+  max-height: 72vh; /* never taller than 72% of the viewport height */
+  border-radius: 14px;
+  box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+}
+
+.complete-overlay p {
+  color: #fff;
+  font-size: 22px;
+  letter-spacing: 3px;
+  margin: 0;
+}
+
+
+/* ============================================================
+   EXPORT / CHECKOUT MODAL (Admin view)
+   ============================================================
+   A full-viewport dark scrim + centered white card, shown the
+   instant a burst session finishes exporting. Uses the same
+   opacity/pointer-events show-hide pattern as .complete-overlay
+   elsewhere in this file, for a smooth fade rather than an abrupt
+   display:none/block toggle. */
+.checkout-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 50; /* above everything else in the Admin dashboard */
+  background: rgba(15, 12, 26, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 250ms ease;
+}
+
+.checkout-modal.show { opacity: 1; pointer-events: auto; }
+
+.checkout-card {
+  position: relative;
+  width: 100%;
+  max-width: 760px;
+  max-height: 90vh;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 3px solid var(--ink);
+  border-radius: var(--radius);
+  box-shadow: 10px 10px 0 var(--ink);
+  padding: 30px;
+  /* Starts slightly scaled down and rises/scales in when .show is
+     added, for a gentle "pop" entrance rather than a flat fade. */
+  transform: scale(0.96);
+  transition: transform 250ms ease;
+}
+
+.checkout-modal.show .checkout-card { transform: scale(1); }
+
+.checkout-close-x {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 2px solid var(--ink);
+  background: var(--panel);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+.checkout-close-x:active { transform: translate(3px, 3px); box-shadow: 0 0 0 var(--ink); }
+
+/* Two-column body: strip preview on the left, QR panel on the
+   right — stacks to a single column on narrow admin screens/tablets. */
+.checkout-body {
+  display: flex;
+  gap: 26px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.checkout-preview {
+  flex: 1 1 260px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f6f0ff;
+  border: 3px solid var(--ink);
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.checkout-preview img {
+  width: 100%;
+  max-height: 60vh;
+  object-fit: contain;
+  border-radius: 6px;
+}
+
+.checkout-qr-panel {
+  flex: 1 1 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  background: linear-gradient(135deg, #fff6fb, #f2ecff);
+  border: 3px solid var(--ink);
+  border-radius: 14px;
+  padding: 20px;
+}
+
+.checkout-qr-panel h3 {
+  margin: 0 0 16px;
+  font-size: 16px;
+  color: #6b4f9c;
+  letter-spacing: 0.3px;
+}
+
+.checkout-qr-box {
+  width: 220px;
+  height: 220px;
+  background: #fff;
+  border: 3px solid var(--ink);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 4px 4px 0 var(--ink);
+  overflow: hidden;
+}
+
+.checkout-qr-box img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.checkout-qr-hint {
+  margin: 14px 0 0;
+  font-size: 12.5px;
+  color: #8a8a92;
+}
+
+.checkout-close-btn {
+  width: 100%;
+  margin-top: 26px;
+  background: var(--ink);
+  color: #fff;
+  padding: 15px;
+  font-size: 15.5px;
+}
